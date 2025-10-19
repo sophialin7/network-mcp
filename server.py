@@ -8,7 +8,7 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 
-cred = credentials.Certificate('/Users/slin7/Downloads/pulseone-dh-firebase-adminsdk-fbsvc-961957f988.json')
+cred = credentials.Certificate('Users/slin7/Documents/home-network-mcp/pulseone-dh-firebase-adminsdk-fbsvc-961957f988.json')
 firebase_app = firebase_admin.initialize_app(cred)
 db = firestore.client()
 
