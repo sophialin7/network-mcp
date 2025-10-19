@@ -1,0 +1,110 @@
+import time, os, subprocess, statistics, random, serial
+import psutil
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# Initialize Firestore
+cred = credentials.Certificate("/home/admin/firebase-key.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# Initialize serial connection to Arduino
+ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
+time.sleep(2)  # give Arduino time to reset
+
+def ping_test(host="8.8.8.8", count=3):
+    try:
+        output = subprocess.check_output(["ping", "-c", str(count), host]).decode()
+        latencies = [float(line.split('time=')[1].split(' ms')[0])
+                     for line in output.split('\n') if "time=" in line]
+        avg = statistics.mean(latencies)
+        loss = 100 - (len(latencies) / count * 100)
+        jitter = statistics.pstdev(latencies)
+        return avg, loss, jitter
+    except:
+        return None, 100, None
+
+def get_wifi_strength():
+    try:
+        output = subprocess.check_output(["iwconfig"]).decode()
+        for line in output.split("\n"):
+            if "Signal level" in line:
+                return int(line.split("Signal level=")[1].split(" ")[0])
+    except:
+        return None
+
+def collect_system_metrics():
+    temps = psutil.sensors_temperatures()
+    temp = None
+    if 'cpu_thermal' in temps and len(temps['cpu_thermal']) > 0:
+        temp = temps['cpu_thermal'][0].current  # access attribute, not dict
+    net_io = psutil.net_io_counters()
+    return {
+        "cpu_temp": temp,
+        "bytes_sent": net_io.bytes_sent,
+        "bytes_recv": net_io.bytes_recv,
+        "cpu_load": psutil.cpu_percent()
+    }
+
+
+def read_arduino_data():
+    """
+    Reads and parses serial data from the Arduino.
+    Expected format from Arduino: "T:27.5,H:40.0,M:0,AX:-1556,AY:120,AZ:17320,GX:335,GY:-163,GZ:75"
+    Returns: dict with all sensor readings
+    """
+    if ser.in_waiting > 0:
+        line = ser.readline().decode('utf-8').strip()
+        print("Raw Arduino:", line)
+
+        try:
+            parts = line.split(',')
+            data = {}
+            for p in parts:
+                key, value = p.split(':')
+                key = key.strip().upper()
+                value = value.strip()
+
+                # Map keys to dictionary fields and convert types
+                if key == 'T':
+                    data['ambient_temp'] = float(value)
+                elif key == 'H':
+                    data['humidity'] = float(value)
+                elif key == 'M':
+                    data['motion_level'] = int(value)
+                elif key in ['AX', 'AY', 'AZ', 'GX', 'GY', 'GZ']:
+                    data[key.lower()] = int(value)  # store as integer for now
+            return data
+
+        except Exception as e:
+            print("Parse error:", e)
+            return None
+    return None
+
+
+def upload_data(data):
+    db.collection("pi_metrics").add(data)
+
+def main():
+    while True:
+        ping_avg, loss, jitter = ping_test()
+        sys_data = collect_system_metrics()
+        arduino_data = read_arduino_data() or {}  # ← prevents NoneType error
+        wifi_strength = get_wifi_strength()
+
+        payload = {
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "ping_avg": ping_avg,
+            "packet_loss": loss,
+            "ping_jitter": jitter,
+            "wifi_strength": wifi_strength,
+            **sys_data,
+            **arduino_data
+        }
+
+        upload_data(payload)
+        print("Uploaded:", payload)
+        time.sleep(10)  # send every 10s → ~few kB/hour
+
+if __name__ == "__main__":
+    main()
