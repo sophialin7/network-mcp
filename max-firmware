@@ -1,0 +1,203 @@
+/*
+ * FIRMWARE: Multi-Sensor System (DHT + Motion + MPU-6050 Gyro)
+ * Board: Arduino Uno
+ * Version: 3.0
+ * Output Format: "T:26.0,H:70.0,M:0,AX:100,AY:200,AZ:300,GX:10,GY:20,GZ:30"
+ * 
+ * INSTALLATION:
+ * 1. Install "DHT sensor library" by Adafruit
+ * 2. Install "Adafruit Unified Sensor" library
+ * 3. Upload this firmware to your Arduino Uno
+ * 4. Open Serial Monitor at 9600 baud
+ */
+
+#include <DHT.h>
+#include <Wire.h>
+
+// Motion Sensor Configuration
+#define MOTION_SENSOR_PIN 2
+#define BAUD_RATE 9600
+
+// DHT Sensor Configuration
+#define DHTPIN 7
+#define DHTTYPE DHT11  // DHT11 is the most common sensor
+
+// MPU-6050 Configuration
+const int MPU_ADDR = 0x68; // I2C address of MPU-6050
+
+// Initialize DHT sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+// Motion state variables
+bool currentMotionState = false;
+bool previousMotionState = false;
+int motionLevel = 0;  // 0 = no motion, 1 = motion detected
+
+// MPU-6050 variables
+int16_t accelerometer_x, accelerometer_y, accelerometer_z;
+int16_t gyro_x, gyro_y, gyro_z;
+int16_t temperature_mpu;
+
+// Timing variables
+unsigned long previousDataMillis = 0;
+const unsigned long dataInterval = 1000;  // Send data every 1 second
+
+// Latest sensor readings
+float lastTemp = 0.0;
+float lastHumidity = 0.0;
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(BAUD_RATE);
+  
+  // Configure motion sensor pin
+  pinMode(MOTION_SENSOR_PIN, INPUT);
+  
+  // Initialize DHT sensor
+  dht.begin();
+  
+  // Initialize MPU-6050
+  Wire.begin();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); // PWR_MGMT_1 register
+  Wire.write(0);    // Wake up MPU-6050
+  Wire.endTransmission(true);
+  
+  // Wait for sensors to stabilize
+  delay(2000);
+}
+
+void loop() {
+  // Continuously monitor motion sensor
+  checkMotionSensor();
+  
+  // Read all sensors and send data every 1 second
+  readAndSendAllData();
+}
+
+void checkMotionSensor() {
+  // Read and update motion state
+  previousMotionState = currentMotionState;
+  currentMotionState = digitalRead(MOTION_SENSOR_PIN);
+  
+  // Update motion level (0 or 1)
+  motionLevel = currentMotionState ? 1 : 0;
+}
+
+void readMPU6050() {
+  // Read MPU-6050 data
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B); // Starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 7*2, true); // Request 14 registers
+  
+  // Read accelerometer and gyroscope data
+  accelerometer_x = Wire.read()<<8 | Wire.read();
+  accelerometer_y = Wire.read()<<8 | Wire.read();
+  accelerometer_z = Wire.read()<<8 | Wire.read();
+  temperature_mpu = Wire.read()<<8 | Wire.read();
+  gyro_x = Wire.read()<<8 | Wire.read();
+  gyro_y = Wire.read()<<8 | Wire.read();
+  gyro_z = Wire.read()<<8 | Wire.read();
+}
+
+void readAndSendAllData() {
+  unsigned long currentMillis = millis();
+  
+  // Check if it's time to read sensors and send data
+  if (currentMillis - previousDataMillis >= dataInterval) {
+    previousDataMillis = currentMillis;
+    
+    // Read DHT sensor
+    float humidity = dht.readHumidity();
+    float tempC = dht.readTemperature();
+    
+    // Check if DHT readings are valid
+    if (!isnan(humidity) && !isnan(tempC)) {
+      // SCALING FIX: If your sensor readings are off, uncomment these lines
+      // tempC = tempC / 10.8;  // Adjust divisor based on your readings
+      // humidity = humidity / 58.0;  // Adjust divisor based on your readings
+      
+      lastTemp = tempC;
+      lastHumidity = humidity;
+    }
+    
+    // Read MPU-6050
+    readMPU6050();
+    
+    // Send all data in formatted string
+    sendFormattedData();
+  }
+}
+
+void sendFormattedData() {
+  // Format: T:temp,H:humidity,M:motion,AX:accel_x,AY:accel_y,AZ:accel_z,GX:gyro_x,GY:gyro_y,GZ:gyro_z
+  
+  Serial.print("T:");
+  Serial.print(lastTemp, 1);
+  
+  Serial.print(",H:");
+  Serial.print(lastHumidity, 1);
+  
+  Serial.print(",M:");
+  Serial.print(motionLevel);
+  
+  Serial.print(",AX:");
+  Serial.print(accelerometer_x);
+  
+  Serial.print(",AY:");
+  Serial.print(accelerometer_y);
+  
+  Serial.print(",AZ:");
+  Serial.print(accelerometer_z);
+  
+  Serial.print(",GX:");
+  Serial.print(gyro_x);
+  
+  Serial.print(",GY:");
+  Serial.print(gyro_y);
+  
+  Serial.print(",GZ:");
+  Serial.println(gyro_z);
+}
+
+/*
+ * WIRING CONNECTIONS:
+ * 
+ * Motion Sensor (PIR):
+ * - VCC → 5V
+ * - GND → GND
+ * - OUT → Pin 2
+ * 
+ * DHT Sensor:
+ * - S (Signal) → Pin 7
+ * - + (VCC)    → 5V
+ * - - (GND)    → GND
+ * 
+ * MPU-6050 (GY-521):
+ * - VCC → 5V (or 3.3V)
+ * - GND → GND
+ * - SCL → A5 (SCL)
+ * - SDA → A4 (SDA)
+ * - XDA → (leave unconnected)
+ * - XCL → (leave unconnected)
+ * - AD0 → GND (for I2C address 0x68)
+ * - INT → (leave unconnected)
+ * 
+ * OUTPUT FORMAT:
+ * T:26.0,H:70.0,M:0,AX:100,AY:200,AZ:300,GX:10,GY:20,GZ:30
+ * 
+ * Where:
+ * - T  = Temperature (°C)
+ * - H  = Humidity (%)
+ * - M  = Motion Level (0=no motion, 1=motion detected)
+ * - AX = Accelerometer X-axis (raw value, represents position/acceleration)
+ * - AY = Accelerometer Y-axis
+ * - AZ = Accelerometer Z-axis
+ * - GX = Gyroscope X-axis (raw value, represents angular velocity/rotation)
+ * - GY = Gyroscope Y-axis
+ * - GZ = Gyroscope Z-axis
+ * 
+ * Note: Accelerometer values typically range from -16384 to +16384
+ *       Gyroscope values typically range from -32768 to +32768
+ */
