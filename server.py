@@ -578,7 +578,6 @@ async def main():
     """Start the MCP server"""
     print("Starting Home Network Copilot MCP Server...", file=sys.stderr, flush=True)
     
-    # Start watching for AI requests in a background task
     if db is not None:
         watch_ai_requests()
     
