@@ -1,17 +1,3 @@
-# import serial
-# import time
-
-# ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
-# time.sleep(2)
-
-# while True:
-#     if ser.in_waiting > 0:
-#         line = ser.readline().decode('utf-8').strip()
-#         print("Arduino:", line)
-#     else:
-#         print("Waiting for data...")
-#     time.sleep(1)
-
 import serial
 import time
 
