@@ -21,7 +21,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 # Initialize Firebase with error handling
 db = None
 try:
-    cred = credentials.Certificate('pulseone-dh-firebase-adminsdk-fbsvc-961957f988.json')
+    cred = credentials.Certificate('firebase.json')
     firebase_app = firebase_admin.initialize_app(cred)
     db = firestore.client()
     client = anthropic.Anthropic(api_key="redacted")
